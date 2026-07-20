@@ -20,9 +20,29 @@ echo "=== Starting Rip Pipeline for: $MOVIE_NAME ==="
 
 # Step 1: MakeMKV Extraction
 mkdir -p "$WORK_DIR"
-echo "[1/2] Ripping disc with MakeMKV..."
+echo "[1/2] Inspecting disc structure with MakeMKV..."
 
-makemkvcon -r mkv "$DISC_DRIVE" all "$WORK_DIR" --minlength=3600 | while read -r line; do
+# Run 'info' command to check title count without ripping
+DISC_INFO=$(makemkvcon -r info "$DISC_DRIVE" --minlength=3600)
+TITLE_COUNT=$(echo "$DISC_INFO" | grep -c "^T:")
+
+if [ "$TITLE_COUNT" -eq 0 ]; then
+    echo "Error: No titles met the minimum length requirement (3600s)."
+    exit 1
+elif [ "$TITLE_COUNT" -gt 1 ]; then
+    echo -e "\n=========================================================="
+    echo -e "WARNING: Disc contains $TITLE_COUNT qualifying titles instead of 1!"
+    echo -e "This disc may use playlist obfuscation or have a director's cut."
+    echo -e "Pipeline halted before ripping. Manual investigation required."
+    echo -e "=========================================================="
+    exit 1
+fi
+
+echo "Disc verified (1 main title found). Ripping..."
+mkdir -p "$WORK_DIR"
+
+# Rip specifically the single identified title (Index 0)
+makemkvcon mkv "$DISC_DRIVE" 0 "$WORK_DIR" | while read -r line; do
     echo "$line"
 done
 

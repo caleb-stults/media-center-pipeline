@@ -23,11 +23,39 @@ if (-not (Test-Path $WorkDir)) {
     New-Item -ItemType Directory -Path $WorkDir | Out-Null
 }
 
-Write-Host "[1/2] Ripping disc with MakeMKV..." -ForegroundColor Yellow
-$makemkvArgs = @("-r", "mkv", $DiscDrive, "all", "$WorkDir", "--minlength=3600")
+Write-Host "[1/2] Inspecting disc structure with MakeMKV..." -ForegroundColor Yellow
 
-$makemkvProcess = Start-Process -FilePath "makemkvcon" -ArgumentList $makemkvArgs -NoNewWindow -PassThru -RedirectStandardOutput "$WorkDir\makemkv_out.log"
+# Run 'info' command and capture output to inspect titles without ripping
+$infoArgs = @("-r", "info", $DiscDrive, "--minlength=3600")
+$discInfo = & makemkvcon $infoArgs 2>&1
 
+# Count how many matching titles MakeMKV detects in the info stream
+# MakeMKV outputs lines starting with 'TCOUT:' (Total Count) or lists individual titles 'T:'
+$titleLines = $discInfo | Where-Object { $_ -match "^T:" }
+$titleCount = @($titleLines).Count
+
+if ($titleCount -eq 0) {
+    Write-Host "Error: No titles met the minimum length requirement (3600s)." -ForegroundColor Red
+    exit 1
+}
+elseif ($titleCount -gt 1) {
+    Write-Host "`n==========================================================" -ForegroundColor Red
+    Write-Host "WARNING: Disc contains $titleCount qualifying titles instead of 1!" -ForegroundColor Red
+    Write-Host "This disc may use playlist obfuscation or have a director's cut." -ForegroundColor Yellow
+    Write-Host "Pipeline halted before ripping. Manual investigation required." -ForegroundColor Yellow
+    Write-Host "==========================================================" -ForegroundColor Red
+    exit 1
+}
+
+# If exactly 1 title is found, proceed to rip just that specific title index (Title 0)
+if (-not (Test-Path $WorkDir)) {
+    New-Item -ItemType Directory -Path $WorkDir | Out-Null
+}
+
+Write-Host "Disc verified (1 main title found). Ripping..." -ForegroundColor Yellow
+$makemkvArgs = @("mkv", $DiscDrive, "0", "$WorkDir")
+
+$makemkvProcess = Start-Process -FilePath "makemkvcon" -ArgumentList $makemkvArgs -NoNewWindow -PassThru
 & makemkvcon $makemkvArgs | ForEach-Object {
     if ($_ -match "PRGV:") {
         $parts = $_ -split ","
