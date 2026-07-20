@@ -13,6 +13,7 @@ Before running the scripts, ensure the following software tools are installed an
 Designed for **Windows 10** environments. 
 
 #### Features:
+* **Live Progress Monitoring:** Displays progress of MakeMKV ripping and Handbrake compression. Also queues Handbrake jobs if current job is running.
 * **Smart Size Evaluation:** 
   * If the compressed file is **under 4 GB**, it automatically moves the file to the NAS and cleans up local raw files.
   * If the file is **over 4 GB**, it prompts for manual confirmation before proceeding with the move and cleanup.
@@ -27,6 +28,7 @@ Designed for **Windows 10** environments.
 Designed for Linux environments.
 
 #### Features:
+* **Live Progress Monitoring:** Displays progress of MakeMKV ripping and Handbrake compression. Also queues Handbrake jobs if current job is running.
 * **Smart Size Evaluation:** 
   * If the compressed file is **under 4 GB**, it automatically moves the file to the NAS and cleans up local raw files.
   * If the file is **over 4 GB**, it prompts for manual confirmation before proceeding with the move and cleanup.
