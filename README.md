@@ -34,7 +34,7 @@ Designed for Linux environments.
 
 #### Usage:
 ```bash
-./rip_movie.sh "Example Movie (2026)" "Your Preset Here"
+./linux-pipeline.sh "Example Movie (2026)" "Your Preset Here"
 ```
 
 ### Configuration
