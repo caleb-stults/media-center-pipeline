@@ -1,100 +1,158 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-MOVIE_NAME="$1"
-PRESET="$2"
+MovieName="$1"
+Preset="$2"
+BurnSubs=false
 
-if [ -z "$MOVIE_NAME" ] || [ -z "$PRESET" ]; then
-    echo "Usage: ./linux-pipeline.sh \"Movie Name (Year)\" \"Preset Name\""
+# Check if the optional third argument is the subtitle flag
+if [ "$3" = "--burn-subs" ]; then
+    BurnSubs=true
+fi
+
+# Basic validation to make sure required arguments were passed
+if [ -z "$MovieName" ] || [ -z "$Preset" ]; then
+    echo "Error: Missing required arguments."
+    echo "Usage: ./linux-pipeline.sh \"Movie Name\" \"Preset Name\" [--burn-subs]"
     exit 1
 fi
 
-DISC_DRIVE="dev:0"
-NAS_BASE="/path/to/NAS"
-LOCAL_VIDEOS="$HOME/Videos"
-WORK_DIR="$LOCAL_VIDEOS/$MOVIE_NAME"
-RAW_MKV="$WORK_DIR/$MOVIE_NAME.mkv"
-COMPRESSED_MKV="$LOCAL_VIDEOS/$MOVIE_NAME.mkv"
-LOG_FILE="$LOCAL_VIDEOS/pipeline_queue.log"
+# Configuration
+MovieName="Example_Movie"
+WorkDir="./work/$MovieName"
+NASBase="/mnt/nas/media"
+Preset="Your_Custom_Preset_Name"
+QueueFile="./pipeline_queue.log"
 
-echo "=== Starting Rip Pipeline for: $MOVIE_NAME ==="
+mkdir -p "$WorkDir"
 
-# Step 1: MakeMKV Extraction
-mkdir -p "$WORK_DIR"
-echo "[1/2] Inspecting disc structure with MakeMKV..."
+echo -e "\033[36mRegistering '$MovieName' in the encoding queue...\033[0m"
+echo "$MovieName" >> "$QueueFile"
 
-# Run 'info' command to check title count without ripping
-DISC_INFO=$(makemkvcon -r info "$DISC_DRIVE" --minlength=3600)
-TITLE_COUNT=$(echo "$DISC_INFO" | grep -c "^T:")
-
-if [ "$TITLE_COUNT" -eq 0 ]; then
-    echo "Error: No titles met the minimum length requirement (3600s)."
-    exit 1
-elif [ "$TITLE_COUNT" -gt 1 ]; then
-    echo -e "\n=========================================================="
-    echo -e "WARNING: Disc contains $TITLE_COUNT qualifying titles instead of 1!"
-    echo -e "This disc may use playlist obfuscation or have a director's cut."
-    echo -e "Pipeline halted before ripping. Manual investigation required."
-    echo -e "=========================================================="
-    exit 1
-fi
-
-echo "Disc verified (1 main title found). Ripping..."
-mkdir -p "$WORK_DIR"
-
-# Rip specifically the single identified title (Index 0)
-makemkvcon mkv "$DISC_DRIVE" 0 "$WORK_DIR" | while read -r line; do
-    echo "$line"
+while true; do
+    mapfile -t QueueLines < <(grep -v '^[[:space:]]*$' "$QueueFile" 2>/dev/null || true)
+    
+    if [ ${#QueueLines[@]} -gt 0 ] && [ "${QueueLines[0]}" = "$MovieName" ]; then
+        echo -e "\033[32mStarting processing for '$MovieName'...\033[0m"
+        break
+    else
+        echo -e "\033[33mAnother job is currently ahead in the queue. Waiting...\033[0m"
+        sleep 30
+    fi
 done
 
-echo "[1/2] MakeMKV extraction complete."
+# Step 1: MakeMKV Extraction (with optional bash progress tracking)
+echo "[1/2] Checking work directory for existing MKV files..."
 
-# Step 2: Handle HandBrake Queueing
-echo "[2/2] Checking HandBrake queue status..."
+# Check if a raw MKV already exists (e.g., manual rip for playlist obfuscation)
+RawMkvFile=$(find "$WorkDir" -maxdepth 1 -name "*.mkv" | head -n 1)
+
+if [ -n "$RawMkvFile" ]; then
+    echo "[1/2] Existing MKV file found. Skipping MakeMKV extraction."
+else
+    echo "[1/2] Starting MakeMKV extraction..."
+    makemkvcon mkv disc:0 all "$WorkDir" --minlength=3600
+    
+    # Dynamically find the newly ripped file
+    RawMkvFile=$(find "$WorkDir" -maxdepth 1 -name "*.mkv" | head -n 1)
+    
+    if [ -z "$RawMkvFile" ]; then
+        echo "CRITICAL ERROR: MakeMKV failed to produce an MKV file."
+        exit 1
+    fi
+fi
+
+CompressedMkv="$WorkDir/${MovieName}.mkv"
+
+# Step 2: Handle HandBrake Queueing & Compression
+echo -e "\033[33m[2/2] Checking HandBrake queue status...\033[0m"
 
 while pgrep -x "HandBrakeCLI" > /dev/null; do
-    TIMESTAMP=$(date "+%Y-%m-%d %H:M:S")
-    MSG="[$TIMESTAMP] HandBrake is busy. '$MOVIE_NAME' waiting in queue..."
-    echo "$MSG"
-    echo "$MSG" >> "$LOG_FILE"
+    Timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    Msg="[$Timestamp] HandBrake is currently busy processing another title. '$MovieName' added to queue-wait state..."
+    echo -e "\033[33m$Msg\033[0m"
+    echo "$Msg" >> "$LogFile"
     sleep 30
 done
 
-echo "HandBrake is free. Starting compression..."
+# Dynamically grab the actual ripped MKV file from the work directory
+RawMkvFile=$(find "$WorkDir" -maxdepth 1 -name "*.mkv" | head -n 1)
 
-HandBrakeCLI --input "$RAW_MKV" --output "$COMPRESSED_MKV" --preset "$PRESET" --optimize 2>&1 | while IFS= read -r line; do
-    if [[ "$line" == *"Encoding: task"* ]]; then
-        printf "\r%s   " "$line"
-    else
-        echo "$line"
-    fi
-done
+if [ -z "$RawMkvFile" ]; then
+    echo -e "\033[31mCRITICAL ERROR: No raw MKV file found in $WorkDir to compress!\033[0m"
+    exit 1
+fi
 
-echo -e "\n[2/2] Compression complete."
+echo -e "\033[32mHandBrake is free. Starting compression...\033[0m"
+
+hbArgs=(
+    "--preset-import-gui"
+    "--input" "$RawMkvFile"
+    "--output" "$CompressedMkv"
+    "--preset" "$Preset"
+    "--optimize"
+)
+
+# Append subtitle flags dynamically if requested via --burn-subs
+if [ "$BurnSubs" = true ]; then
+    echo -e "\033[33mSubtitle burn-in requested. Adding subtitle flags...\033[0m"
+    hbArgs+=("--subtitle" "1" "--subtitle-burned" "1")
+fi
+
+HandBrakeCLI "${hbArgs[@]}"
+
+if [ $HbExitCode -ne 0 ]; then
+    echo ""
+    echo "CRITICAL ERROR: HandBrake failed (Exit Code: $HbExitCode)."
+    echo "Preset '$Preset' may be invalid or missing."
+    echo "Your raw MKV is safely preserved in: $WorkDir"
+    echo "Fix the issue and re-run. No re-rip necessary."
+    exit 1
+fi
+
+echo -e "\033[32m\n[2/2] Compression complete.\033[0m"
 
 # Step 3: Size Evaluation & NAS Transfer
-FILE_SIZE_BYTES=$(stat -c%s "$COMPRESSED_MKV" 2>/dev/null || stat -f%z "$COMPRESSED_MKV")
-FILE_SIZE_GB=$(awk "BEGIN {print $FILE_SIZE_BYTES / 1024 / 1024 / 1024}")
+FileSizeGB=$(du -b "$CompressedMkv" | awk '{print $1 / 1024 / 1024 / 1024}')
+RoundedSize=$(printf "%.2f" "$FileSizeGB")
+echo -e "\033[36mCompressed file size: $RoundedSize GB\033[0m"
 
-echo "Compressed file size: $FILE_SIZE_GB GB"
+Proceed=true
+IsOverLimit=$(awk 'BEGIN {print ("$FileSizeGB" > 4.0) ? 1 : 0}')
 
-PROCEED=true
-GT_FOUR=$(awk "BEGIN {print ($FILE_SIZE_GB > 4.0) ? 1 : 0}")
-
-if [ "$GT_FOUR" -eq 1 ]; then
-    echo "Warning: File size exceeds 4 GB threshold."
-    read -p "Proceed with NAS move? (y/n): " RESPONSE
-    if [[ "$RESPONSE" != "y" && "$RESPONSE" != "Y" ]]; then
-        PROCEED=false
-        echo "NAS move aborted by user."
+if [ "$IsOverLimit" -eq 1 ]; then
+    echo -e "\033[33mWarning: File size exceeds 4 GB threshold.\033[0m"
+    read -p "Proceed with NAS move? (Y/N): " Response
+    if [[ "$Response" != "Y" && "$Response" != "y" ]]; then
+        Proceed=false
+        echo -e "\033[31mNAS move aborted by user. File remains in local Videos.\033[0m"
     fi
 fi
 
-if [ "$PROCEED" = true ]; then
-    TARGET_DIR="$NAS_BASE/$MOVIE_NAME"
-    mkdir -p "$TARGET_DIR"
+if [ "$Proceed" = true ]; then
+    TargetDir="$NASBase/$MovieName"
+    mkdir -p "$TargetDir"
     
-    echo "Moving file to NAS..."
-    mv "$COMPRESSED_MKV" "$TARGET_DIR/$MOVIE_NAME.mkv"
-    rm -rf "$WORK_DIR"
-    echo "Pipeline finished successfully!"
+    echo -e "\033[33mMoving file to NAS...\033[0m"
+    mv "$CompressedMkv" "$TargetDir/$MovieName.mkv"
+
+    # Remove the specific movie's temporary work directory
+    if [ -d "$WorkDir" ]; then
+        echo -e "\033[90mCleaning up temporary work directory...\033[0m"
+        rm -rf "$WorkDir"
+    fi
+
+    if [ -f "$QueueFile" ]; then
+        temp_file=$(mktemp)
+        grep -v "^$MovieName$" "$QueueFile" > "$temp_file" || true
+        
+        if [ -s "$temp_file" ]; then
+            mv "$temp_file" "$QueueFile"
+            echo -e "\033[33mRemoved '$MovieName' from queue. Handing off to next job...\033[0m"
+        else
+            rm -f "$temp_file" "$QueueFile"
+            echo -e "\033[90mQueue is now empty. Cleaned up queue file.\033[0m"
+        fi
+    fi
+
+    echo -e "\033[32mPipeline finished successfully! Directory state restored.\033[0m"
 fi
