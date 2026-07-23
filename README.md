@@ -8,6 +8,9 @@ Some scripts I created to automate my pipeline from MakeMKV ripping to Handbrake
 4. After compressing, it checks the file to make sure it is small enough (under 4 GB) and then moves the file onto the separate NAS computer.
 5. Cleans up raw MakeMKV file and log file from local computer. The log file will persist if you are running multiple jobs and will delete when the final one completes.
 
+## Note:
+Currently you need to manually check the disc for multiple versions of the same file. At present time it does not parse correctly to pick up on this and will simply delete the files after ripping one and seeing there's another one. I am still working through this logic to fix it. 
+
 ## Prerequisites
 
 Before running the scripts, ensure the following software tools are installed and accessible via your system's `PATH`:

@@ -4,7 +4,7 @@ param(
     
     [Parameter(Mandatory=$true)]
     [ValidateSet("Preset 1", "Preset 2", "Preset 3")]
-    [string]$Preset
+    [string]$Preset,
 
     [Parameter(Mandatory=$false)]
     [switch]$BurnSubs
@@ -18,27 +18,13 @@ $WorkDir = Join-Path $LocalVideos $MovieName
 $RawMkv = Join-Path $WorkDir "$MovieName.mkv"
 $CompressedMkv = Join-Path $LocalVideos "$MovieName.mkv"
 $LogFile = Join-Path $LocalVideos "pipeline_queue.log"
+$QueueFile = Join-Path $LocalVideos "pipeline_queue.txt"
 
 Write-Host "Starting Rip Pipeline for: $MovieName" -ForegroundColor Cyan
 
 # Step 1: MakeMKV Extraction
 if (-not (Test-Path $WorkDir)) {
     New-Item -ItemType Directory -Path $WorkDir | Out-Null
-}
-
-Write-Host "Registering '$MovieName' in the encoding queue..." -ForegroundColor Cyan
-[System.IO.File]::AppendAllText($QueueFile, "$MovieName`n")
-
-while ($true) {
-    $QueueLines = Get-Content -Path $QueueFile -ErrorAction SilentlyContinue | Where-Object { $_.Trim().Length -gt 0 }
-    
-    if ($QueueLines -and $QueueLines[0].Trim() -eq $MovieName) {
-        Write-Host "Starting processing for '$MovieName'..." -ForegroundColor Green
-        break
-    } else {
-        Write-Host "Another job is currently ahead in the queue. Waiting..." -ForegroundColor Yellow
-        Start-Sleep -Seconds 30
-    }
 }
 
 $existingMkv = @(Get-ChildItem -Path $WorkDir -Filter "*.mkv")
@@ -70,6 +56,21 @@ if ($existingMkv.Count -gt 0) {
 
 # Step 2: Handle HandBrake Queueing & Compression
 Write-Host "[2/2] Checking HandBrake queue status..." -ForegroundColor Yellow
+
+Write-Host "Registering '$MovieName' in the encoding queue..." -ForegroundColor Cyan
+[System.IO.File]::AppendAllText($QueueFile, "$MovieName`n")
+
+while ($true) {
+    $QueueLines = @(Get-Content -Path $QueueFile -ErrorAction SilentlyContinue | Where-Object { $_.Trim().Length -gt 0 })
+    
+    if ($QueueLines -and $QueueLines[0].Trim() -eq $MovieName) {
+        Write-Host "Starting processing for '$MovieName'..." -ForegroundColor Green
+        break
+    } else {
+        Write-Host "Another job is currently ahead in the queue. Waiting..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 30
+    }
+}
 
 function Test-HandBrakeRunning {
     $hbProcesses = Get-Process -Name "HandBrakeCLI" -ErrorAction SilentlyContinue
