@@ -1,6 +1,13 @@
 # Media Center Pipeline
 Some scripts I created to automate my pipeline from MakeMKV ripping to Handbrake compressing to moving onto my NAS to stream on my Emby server. I put in some checks to ensure file size is small enough since these get streamed over a VPN server occassionally. This script is intended for grabbing just the movie file, none of the special features. For fringe cases of multiple cuts, special features, or playlist obfuscation, the script will stop so the process can be done manually.
 
+## Overview
+1. Command is run that specifies the movie name as well as the Handbrake preset.
+2. Runs MakeMKV for one single file longer than 1 hour (3600s). This is so only the movie file on the disc is grabbed and will fit most use cases for the disc.
+3. After ripping, runs Handbrake compresion based on the preset defined in the command. 
+4. After compressing, it checks the file to make sure it is small enough (under 4 GB) and then moves the file onto the separate NAS computer.
+5. Cleans up raw MakeMKV file and log file from local computer. The log file will persist if you are running multiple jobs and will delete when the final one completes.
+
 ## Prerequisites
 
 Before running the scripts, ensure the following software tools are installed and accessible via your system's `PATH`:
